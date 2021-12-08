@@ -14,7 +14,7 @@ impl Point {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct Segment {
     start: Point,
     end: Point,
@@ -28,6 +28,40 @@ fn maybe_swap(p: Point) -> Point {
 }
 
 impl Segment {
+    fn slope(&self) -> f32 {
+        return (self.end.y as f32 - self.start.y as f32)
+            / (self.end.x as f32 - self.start.x as f32);
+    }
+
+    fn x_intersect(&self) -> f32 {
+        return (self.start.x as f32 * self.end.y as f32 - self.end.x as f32 * self.start.y as f32)
+            / (self.end.y as f32 - self.start.y as f32);
+    }
+
+    fn y_intersect(&self) -> f32 {
+        return (self.start.x as f32 * self.end.y as f32 - self.end.x as f32 * self.start.y as f32)
+            / (self.start.x as f32 - self.end.x as f32);
+    }
+
+    fn get_y(&self, x: i32) -> i32 {
+        return self.slope().round() as i32 * x + self.y_intersect().round() as i32;
+    }
+
+    fn reorient(&self) -> Segment {
+        if self.start.x == self.end.x && self.start.y > self.end.y {
+            return Segment {
+                start: self.end,
+                end: self.start,
+            };
+        } else if self.start.x > self.end.x {
+            return Segment {
+                start: self.end,
+                end: self.start,
+            };
+        }
+        return *self;
+    }
+
     fn intersect_point(&self, other: &Segment) -> Option<Point> {
         let p0_x = self.start.x as f32;
         let p0_y = self.start.y as f32;
@@ -53,7 +87,7 @@ impl Segment {
         return None;
     }
 
-    fn overlap_points(&self, other: &Segment) -> Vec<Point> {
+    fn overlap_points_hv(&self, other: &Segment) -> Vec<Point> {
         let a: Point;
         let b: Point;
         let coeff: i32;
@@ -87,13 +121,37 @@ impl Segment {
         let overlap_end = cmp::min(a.y, b.y);
         let mut points: Vec<Point> = Vec::new();
         for overlap in overlap_start..=overlap_end {
-            let overlap_point: Point;
-            if horizontal {
-                overlap_point = Point::new(coeff, overlap);
+            points.push(if horizontal {
+                Point::new(coeff, overlap)
             } else {
-                overlap_point = Point::new(overlap, coeff);
-            }
-            points.push(overlap_point);
+                Point::new(overlap, coeff)
+            });
+        }
+        return points;
+    }
+
+    fn overlap_points_diag(&self, other: &Segment) -> Vec<Point> {
+        if self.slope().abs() != 1.0 || other.slope().abs() != 1.0 || self.slope() != other.slope()
+        {
+            return Vec::new();
+        }
+
+        if self.x_intersect() != other.x_intersect() || self.y_intersect() != other.y_intersect() {
+            return Vec::new();
+        }
+
+        let a = maybe_swap(Point::new(self.start.x, self.end.x));
+        let b = maybe_swap(Point::new(other.start.x, other.end.x));
+        if !(a.x <= b.y && a.y >= b.x) {
+            return Vec::new();
+        }
+
+        let overlap_start = cmp::max(a.x, b.x);
+        let overlap_end = cmp::min(a.y, b.y);
+
+        let mut points: Vec<Point> = Vec::new();
+        for overlap in overlap_start..=overlap_end {
+            points.push(Point::new(overlap, self.get_y(overlap)));
         }
         return points;
     }
@@ -118,16 +176,16 @@ fn main() {
 
         let (startx, starty) = parse_point(s[0]);
         let (endx, endy) = parse_point(s[1]);
-
-        if !(startx == endx || starty == endy) {
-            continue;
-        }
-
         let segment = Segment {
             start: Point::new(startx, starty),
             end: Point::new(endx, endy),
-        };
-        segments.push(segment)
+        }
+        .reorient();
+
+        let slope = segment.slope().abs();
+        if slope == 0.0 || slope == 1.0 || slope == f32::INFINITY {
+            segments.push(segment);
+        }
     }
 
     let mut intersection_points: HashMap<Point, i32> = HashMap::new();
@@ -141,12 +199,17 @@ fn main() {
                 }
                 None => {}
             }
-            let overlaps = segments[i].overlap_points(&segments[j]);
+            let overlaps = segments[i].overlap_points_hv(&segments[j]);
+            for p in overlaps {
+                let p_count = intersection_points.entry(p).or_insert(0);
+                *p_count += 1;
+            }
+            let overlaps = segments[i].overlap_points_diag(&segments[j]);
             for p in overlaps {
                 let p_count = intersection_points.entry(p).or_insert(0);
                 *p_count += 1;
             }
         }
     }
-    println!("{:?}", intersection_points.len())
+    println!("{}", intersection_points.len())
 }
